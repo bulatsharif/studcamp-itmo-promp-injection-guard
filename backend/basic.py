@@ -5,12 +5,9 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipe
 import torch
 import re
 from typing import Optional
-import time
-# Remove asyncio/threadpool imports - relying on FastAPI default thread pool
 import os
+import time
 import backend.metrics as metrics
-
-# FastAPI will offload sync endpoints to its own ThreadPoolExecutor, so no custom pool is needed.
 
 
 class PromptInjectionFilter:
@@ -29,20 +26,182 @@ class PromptInjectionFilter:
             "delete",
             "system",
         ]
-        self._init_ml_model()
+        self._init_ml_models()
 
-    def _init_ml_model(self):
+    def _init_ml_models(self):
+        """Initialize both English and Russian prompt injection models"""
+        # Initialize English model (existing)
         try:
-            self.ml_classifier = pipeline(
+            self.en_classifier = pipeline(
                 "text-classification",
                 model="protectai/deberta-v3-base-prompt-injection-v2",
             )
-            self.ml_model_available = True
+            self.en_model_available = True
+            print("English prompt injection model loaded successfully")
         except Exception as e:
-            print(f"Warning: Could not load ML prompt injection model: {e}")
-            print("Falling back to regex-only detection")
-            self.ml_model_available = False
-            self.ml_classifier = None
+            print(f"Warning: Could not load English prompt injection model: {e}")
+            self.en_model_available = False
+            self.en_classifier = None
+
+        # Initialize Russian model (new fine-tuned model)
+        try:
+            ru_model_path = "./ru-bert-prompt-injection"
+            if os.path.exists(ru_model_path):
+                self.ru_tokenizer = AutoTokenizer.from_pretrained(ru_model_path)
+                self.ru_model = AutoModelForSequenceClassification.from_pretrained(ru_model_path)
+                
+                # Move to GPU if available
+                if torch.cuda.is_available():
+                    self.ru_model = self.ru_model.cuda()
+                
+                self.ru_model_available = True
+                print("Russian prompt injection model loaded successfully")
+            else:
+                raise FileNotFoundError(f"Russian model not found at {ru_model_path}")
+        except Exception as e:
+            print(f"Warning: Could not load Russian prompt injection model: {e}")
+            print("Falling back to English model for Russian text")
+            self.ru_model_available = False
+            self.ru_tokenizer = None
+            self.ru_model = None
+
+        # Set overall model availability
+        self.ml_model_available = self.en_model_available or self.ru_model_available
+        
+        if not self.ml_model_available:
+            print("Warning: No ML models available, falling back to regex-only detection")
+
+    def detect_language(self, text: str) -> str:
+        """Detect if text is Russian or English"""
+        cyrillic_pattern = re.compile(r'[а-яё]', re.IGNORECASE)
+        if cyrillic_pattern.search(text):
+            return 'ru'
+        return 'en'
+
+    def predict_russian_injection(self, text: str) -> dict:
+        """Predict prompt injection using the fine-tuned Russian BERT model"""
+        try:
+            # Tokenize input
+            inputs = self.ru_tokenizer(
+                text, 
+                return_tensors='pt', 
+                truncation=True, 
+                padding=True, 
+                max_length=512
+            )
+            
+            # Move to same device as model
+            if torch.cuda.is_available():
+                inputs = {k: v.cuda() for k, v in inputs.items()}
+            
+            # Get prediction
+            with torch.no_grad():
+                outputs = self.ru_model(**inputs)
+                logits = outputs.logits
+                probabilities = torch.softmax(logits, dim=-1)
+                
+            # Convert to CPU for processing
+            probabilities = probabilities.cpu().numpy()[0]
+            
+            # Assuming binary classification: [SAFE, INJECTION]
+            # Adjust indices based on your model's label mapping
+            injection_probability = float(probabilities[1])  # Index 1 for injection class
+            safe_probability = float(probabilities[0])       # Index 0 for safe class
+            
+            # Determine prediction
+            is_injection = injection_probability > 0.5
+            confidence = injection_probability if is_injection else safe_probability
+            label = "INJECTION" if is_injection else "SAFE"
+            
+            return {
+                'detected': is_injection,
+                'confidence': confidence,
+                'label': label,
+                'injection_probability': injection_probability,
+                'safe_probability': safe_probability,
+                'model_used': 'ru-bert-fine-tuned'
+            }
+            
+        except Exception as e:
+            return {
+                'detected': False,
+                'confidence': 0.0,
+                'label': 'ERROR',
+                'error': f"Russian model prediction error: {str(e)}",
+                'model_used': 'ru-bert-fine-tuned'
+            }
+
+    def detect_injection_ml(self, text: str) -> dict:
+        """Detect prompt injection using the appropriate language model while
+        collecting inference latency and Prometheus metrics."""
+        start_t = time.perf_counter()
+        try:
+            if not self.ml_model_available:
+                return {
+                    "detected": False,
+                    "confidence": 0.0,
+                    "label": "SAFE",
+                    "error": "No ML models available",
+                    "model_used": "none",
+                }
+
+            language = self.detect_language(text)
+
+            # ------------------------------------------------------------------
+            # Russian model branch
+            # ------------------------------------------------------------------
+            if language == "ru" and self.ru_model_available:
+                result = self.predict_russian_injection(text)
+
+            # ------------------------------------------------------------------
+            # English / fallback branch
+            # ------------------------------------------------------------------
+            elif self.en_model_available:
+                try:
+                    pipe_out = self.en_classifier(text)
+                    prediction = pipe_out[0] if isinstance(pipe_out, list) else pipe_out
+                    label = prediction["label"]
+                    confidence = prediction["score"]
+                    is_injection = label in [
+                        "INJECTION",
+                        "MALICIOUS",
+                        "1",
+                    ] or (label == "LABEL_1" and confidence > 0.5)
+                    result = {
+                        "detected": is_injection,
+                        "confidence": confidence,
+                        "label": label,
+                        "raw_prediction": prediction,
+                        "model_used": "en-deberta-v3"
+                        if language == "en"
+                        else "en-deberta-v3-fallback",
+                        "detected_language": language,
+                    }
+                except Exception as e:
+                    result = {
+                        "detected": False,
+                        "confidence": 0.0,
+                        "label": "ERROR",
+                        "error": f"English model prediction error: {str(e)}",
+                        "model_used": "en-deberta-v3",
+                    }
+            else:
+                result = {
+                    "detected": False,
+                    "confidence": 0.0,
+                    "label": "SAFE",
+                    "error": f"No suitable model available for language: {language}",
+                    "model_used": "none",
+                    "detected_language": language,
+                }
+
+            # Metric: total detections per method (ML)
+            if result.get("detected"):
+                metrics.PROMPT_INJECTION_DETECTIONS_TOTAL.labels("ml").inc()
+
+            return result
+        finally:
+            metrics.INJECTION_ML_LATENCY.observe(time.perf_counter() - start_t)
 
     def detect_injection_regex(self, text: str) -> dict:
         result = {"detected": False, "patterns_matched": [], "fuzzy_matches": []}
@@ -59,45 +218,6 @@ class PromptInjectionFilter:
                     result["fuzzy_matches"].append({"word": word, "pattern": pattern})
                     metrics.PROMPT_INJECTION_DETECTIONS_TOTAL.labels("regex").inc()
         return result
-
-    def detect_injection_ml(self, text: str) -> dict:
-        start_t = time.perf_counter()
-        if not self.ml_model_available:
-            return {
-                "detected": False,
-                "confidence": 0.0,
-                "label": "SAFE",
-                "error": "ML model not available",
-            }
-        # -------------------------------------------------------------------
-        # Record inference latency regardless of outcome
-        # -------------------------------------------------------------------
-        try:
-            result = self.ml_classifier(text)
-            prediction = result[0] if isinstance(result, list) else result
-            label = prediction["label"]
-            confidence = prediction["score"]
-            is_injection = label in ["INJECTION", "MALICIOUS", "1"] or (
-                label == "LABEL_1" and confidence > 0.5
-            )
-            # Metric: total detections per method
-            if is_injection:
-                metrics.PROMPT_INJECTION_DETECTIONS_TOTAL.labels("ml").inc()
-            return {
-                "detected": is_injection,
-                "confidence": confidence,
-                "label": label,
-                "raw_prediction": prediction,
-            }
-        except Exception as e:
-            return {
-                "detected": False,
-                "confidence": 0.0,
-                "label": "ERROR",
-                "error": str(e),
-            }
-        finally:
-            metrics.INJECTION_ML_LATENCY.observe(time.perf_counter() - start_t)
 
     def detect_injection(self, text: str) -> dict:
         regex_result = self.detect_injection_regex(text)

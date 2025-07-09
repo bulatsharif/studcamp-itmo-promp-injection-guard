@@ -4,16 +4,16 @@ FROM python:3.10-slim as base
 WORKDIR /app
 
 # Install system dependencies first (rarely change)
-RUN apt-get update && apt-get install -y \
-    --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install Python dependencies (changes less frequently than source code)
+# Copy requirements.txt from the root directory
 COPY requirements.txt ./
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download and cache HuggingFace models in separate layer
-# This layer will be cached unless model versions change
+# Pre-download and cache HuggingFace models in a separate layer
 RUN python - <<'PYTHON'
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 print("Downloading models...")
@@ -27,11 +27,14 @@ pipeline(task="text-classification", model="minuva/MiniLMv2-toxic-jigsaw", verbo
 print("HuggingFace models downloaded and cached successfully.")
 PYTHON
 
+# Copy the Russian BERT prompt-injection model from the project root
+COPY ru-bert-prompt-injection ./ru-bert-prompt-injection
+
 # Create multiprocess metrics directory
 RUN mkdir -p /tmp/prom_metrics
 
-# Copy source code last (changes most frequently)
-COPY backend/ ./backend/
+# Copy backend application code last (changes most frequently)
+COPY backend ./backend
 
 EXPOSE 8000
 
