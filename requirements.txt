@@ -4,4 +4,6 @@ transformers
 torch
 pydantic 
 pytest
-httpx 
+httpx
+prometheus-client
+gunicorn

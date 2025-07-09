@@ -1,0 +1,98 @@
+{
+  "id": null,
+  "uid": "defense-overview",
+  "title": "Defense System Overview",
+  "tags": ["defense", "prometheus"],
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "version": 3,
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "piechart",
+      "title": "Blocked Messages",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "sum by (label) (increase(blocked_messages_by_label_total[30m]))", "legendFormat": "{{label}}", "refId": "A" }
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0}
+    },
+    {
+      "type": "piechart",
+      "title": "Safe vs Unsafe Messages",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "sum by (verdict) (increase(safe_unsafe_messages_total[30m]))", "legendFormat": "{{verdict}}", "refId": "A" }
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0}
+    },
+    {
+      "type": "piechart",
+      "title": "All Requests",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "sum by (language) (increase(requests_by_language_total[30m]))", "legendFormat": "{{language}}", "refId": "A" }
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0}
+    },
+    {
+      "type": "piechart",
+      "title": "Blocked Requests",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "sum by (language) (increase(blocked_requests_by_language_total[30m]))", "legendFormat": "{{language}}", "refId": "A" }
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 24, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Total Requests",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "sum(rate(defense_requests_total[1m])) by (status)", "legendFormat": "{{status}}", "refId": "A" }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "Request Latency",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(defense_request_processing_seconds_bucket[1m])) by (le))", "legendFormat": "p95 latency", "refId": "A" }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "Prompt Injection ML Latency",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "rate(prompt_injection_ml_inference_seconds_sum[1m]) / rate(prompt_injection_ml_inference_seconds_count[1m])", "legendFormat": "{{language}}", "refId": "A" }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+    },
+    {
+      "type": "timeseries",
+      "title": "Toxicity ML Latency",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "rate(toxicity_ml_inference_seconds_sum[1m]) / rate(toxicity_ml_inference_seconds_count[1m])", "legendFormat": "{{language}}", "refId": "A" }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+    },
+    {
+      "type": "bargauge",
+      "title": "Blocked Requests",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "sum by (label) (increase(blocked_messages_by_label_total[30m]))", "legendFormat": "{{label}}", "refId": "A" }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
+    }
+  ],
+  "templating": {"list": []}
+} 
