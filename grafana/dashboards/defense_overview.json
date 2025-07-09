@@ -71,7 +71,7 @@
       "title": "Prompt Injection ML Latency",
       "datasource": "Prometheus",
       "targets": [
-        { "expr": "rate(prompt_injection_ml_inference_seconds_sum[1m]) / rate(prompt_injection_ml_inference_seconds_count[1m])", "legendFormat": "ML Latency", "refId": "A" }
+        { "expr": "rate(prompt_injection_ml_inference_seconds_sum[1m]) / rate(prompt_injection_ml_inference_seconds_count[1m])", "legendFormat": "{{language}}", "refId": "A" }
       ],
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
     },

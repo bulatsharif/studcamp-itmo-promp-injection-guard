@@ -57,6 +57,7 @@ TOXICITY_SCORE_HIST = Histogram(
 INJECTION_ML_LATENCY = Histogram(
     "prompt_injection_ml_inference_seconds",
     "Latency of prompt-injection ML inference in seconds",
+    labelnames=["language"],
 )
 
 TOXICITY_ML_LATENCY = Histogram(

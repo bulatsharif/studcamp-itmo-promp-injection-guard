@@ -134,6 +134,7 @@ class PromptInjectionFilter:
     def detect_injection_ml(self, text: str) -> dict:
         """Detect prompt injection using the appropriate language model while
         collecting inference latency and Prometheus metrics."""
+        language = self.detect_language(text)
         start_t = time.perf_counter()
         try:
             if not self.ml_model_available:
@@ -143,9 +144,8 @@ class PromptInjectionFilter:
                     "label": "SAFE",
                     "error": "No ML models available",
                     "model_used": "none",
+                    "detected_language": language,
                 }
-
-            language = self.detect_language(text)
 
             # ------------------------------------------------------------------
             # Russian model branch
@@ -201,7 +201,9 @@ class PromptInjectionFilter:
 
             return result
         finally:
-            metrics.INJECTION_ML_LATENCY.observe(time.perf_counter() - start_t)
+            metrics.INJECTION_ML_LATENCY.labels(language).observe(
+                time.perf_counter() - start_t
+            )
 
     def detect_injection_regex(self, text: str) -> dict:
         result = {"detected": False, "patterns_matched": [], "fuzzy_matches": []}
