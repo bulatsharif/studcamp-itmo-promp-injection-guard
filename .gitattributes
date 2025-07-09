@@ -1,0 +1,3 @@
+*.safetensors filter=lfs diff=lfs merge=lfs -text
+notebooks/data2.txt filter=lfs diff=lfs merge=lfs -text
+ru-bert-prompt-injection/optimizer.pt filter=lfs diff=lfs merge=lfs -text
