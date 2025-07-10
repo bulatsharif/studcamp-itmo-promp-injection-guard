@@ -22,6 +22,7 @@ REQUESTS_TOTAL = Counter(
 REQUEST_LATENCY = Histogram(
     "defense_request_processing_seconds",
     "Latency of /defend endpoint in seconds",
+    labelnames=["language"],
 )
 
 SAFE_MESSAGES_TOTAL = Counter("defense_messages_safe_total", "Messages marked safe")
@@ -32,9 +33,6 @@ REJECTED_MESSAGES_TOTAL = Counter(
     labelnames=["reason"],
 )
 
-HUMAN_REVIEW_TOTAL = Counter(
-    "defense_human_review_required_total", "Messages routed for human review"
-)
 
 PROMPT_INJECTION_DETECTIONS_TOTAL = Counter(
     "prompt_injection_detections_total",
@@ -63,6 +61,18 @@ INJECTION_ML_LATENCY = Histogram(
 TOXICITY_ML_LATENCY = Histogram(
     "toxicity_ml_inference_seconds",
     "Latency of toxicity ML inference in seconds",
+    labelnames=["language"],
+)
+
+SPAM_DETECTIONS_TOTAL = Counter(
+    "spam_detections_total",
+    "Spam messages detected by language",
+    labelnames=["language"],
+)
+
+SPAM_ML_LATENCY = Histogram(
+    "spam_ml_inference_seconds",
+    "Latency of spam ML inference in seconds",
     labelnames=["language"],
 )
 

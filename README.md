@@ -1,70 +1,117 @@
-# studcamp-itmo-promp-injection-guard
+# Prompt Injection Guard
 
-## How does it work?
+Multi-layered defense system for LLM applications that detects prompt injection, toxicity, and spam in user messages. Built for Yandex Studcamp at ITMO 2025.
 
-This project is designed to detect prompt injection, toxicity, and spam in user prompts for LLMs (Large Language Models). It provides a FastAPI backend with endpoints for analyzing user input using both local models and external LLMs via OpenRouter. The backend can:
-- Detect prompt injection using regex, ML models, and LLMs.
-- Detect toxicity and spam in both English and Russian.
-- Provide a unified API for message defense and LLM-based analysis.
-- Evaluate and benchmark different LLMs on curated test sets for prompt injection, toxicity, and spam detection.
+## Features
 
-The project also includes scripts to benchmark various LLMs (via OpenRouter) on detection tasks, measuring both accuracy and response time.
+- **Prompt Injection Detection**: ML-based detection using BERT models + regex patterns
+- **Toxicity Detection**: Support for English and Russian languages
+- **Spam Detection**: SMS spam and general content spam filtering
+- **Human-in-the-Loop Controls**: Flagging high-risk messages for review
+- **Prometheus Metrics**: Real-time monitoring and alerting
+- **Grafana Dashboard**: Visualization of defense metrics
 
-## How to test everythingg
+## Quick Start
 
-### 1. Clone the repository
+### 1. Clone Repository
+
 ```bash
-git clone <your-fork-url>
+git clone https://github.com/bulatsharif/studcamp-itmo-promp-injection-guard.git
 cd studcamp-itmo-promp-injection-guard
 ```
 
-### 2. Set up the environment
-- Install Python 3.10+ (recommended: 3.12)
-- (Optional) Create and activate a virtual environment:
-  ```bash
-  python -m venv venv
-  source venv/bin/activate
-  ```
-- Install dependencies:
-  ```bash
-  pip install -r requirements.txt
-  ```
+### 2. Environment Configuration
 
-### 3. Configure OpenRouter API key
-- Create a `.env` file in the project root with your OpenRouter API key:
-  ```
-  OPEN_ROUTER_API_KEY=sk-<your-key-here>
-  ```
+Create `.env` file in project root:
 
-### 4. Run the backend
-- From the project root, run:
-  ```bash
-  uvicorn backend.basic:app --reload
-  ```
-- The API docs will be available at [http://localhost:8000/docs](http://localhost:8000/docs)
+```env
+# Model Configuration
+TOXICITY_THRESHOLD=0.5
+SPAM_THRESHOLD=0.5
+PROMPT_INJECTION_THRESHOLD=0.5
 
-### 5. Test the OpenRouter endpoint
-- Use the `/openrouter-analyze` endpoint in the docs or via curl:
-  ```bash
-  curl -X POST "http://localhost:8000/openrouter-analyze" \
-    -H "Content-Type: application/json" \
-    -d '{"user_prompt": "Your test prompt here"}'
-  ```
+# OpenRouter API (optional, for fallback)
+OPENROUTER_API_KEY=your_api_key_here
+OPENROUTER_MODEL=qwen/qwen3-30b-a3b:free
 
-### 6. Run LLM evaluation script
-- Go to the backend folder:
-  ```bash
-  cd backend
-  ```
-- Run the test script:
-  ```bash
-  python llms_test.py
-  ```
-- The script will test several LLMs on prompt injection, toxicity, and spam detection, printing accuracy, average confidence, and response time for each model.
+# Prometheus Settings
+PROMETHEUS_MULTIPROC_DIR=/tmp/prom_metrics
 
-### 7. (Optional) Docker
-- You can run the backend in Docker using the provided Dockerfile and docker-compose.yml. Make sure to mount your `.env` file and expose the correct ports.
+# Performance Tuning
+WORKERS=4
+OMP_NUM_THREADS=2
+MKL_NUM_THREADS=2
+```
 
----
+### 3. Build and Run
+DOCKER_BUILDKIT=1 docker compose up --build
+```
 
-**If you have any issues or questions, feel free to open an issue or ask for help!**
+### 4. Access Services
+
+- **API**: http://localhost:8000
+- **API Docs**: http://localhost:8000/docs
+- **Prometheus**: http://localhost:9090
+- **Grafana**: http://localhost:3000 (admin/admin)
+
+## API Usage
+
+### Defense Endpoint
+
+```bash
+curl -X POST "http://localhost:8000/defend" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Your message here"}'
+```
+
+Response:
+```json
+{
+  "is_safe": true,
+  "reason": null,
+  "scores": {
+    "prompt_injection": 0.03,
+    "toxicity": 0.02,
+    "spam": 0.01
+  }
+}
+```
+
+### Fallback Analysis Endpoint
+
+```bash
+curl -X POST "http://localhost:8000/fallback-analyze" \
+  -H "Content-Type: application/json" \
+  -d '{"user_prompt": "Your message here"}'
+```
+
+Response:
+```json
+{
+  "result": "Analysis result from LLM",
+  "error": null
+}
+```
+
+## Hardware Requirements
+
+### Minimum
+- **RAM**: 4GB
+- **CPU**: 2 cores
+- **Storage**: 3GB free space
+- **Network**: Internet access for model downloads
+
+### Recommended
+- **RAM**: 8GB+
+- **CPU**: 4+ cores
+- **Storage**: 5GB+ free space
+- **GPU**: Optional, for faster inference
+
+### Monitoring
+
+Visit Grafana dashboard at http://localhost:3000 to monitor:
+- Request metrics and latency
+- Detection rates by type
+- Model inference performance
+- System resource usage
+

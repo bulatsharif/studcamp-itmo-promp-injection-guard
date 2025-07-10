@@ -11,7 +11,10 @@ services:
       - ./backend:/app/backend
     environment:
       - PROMETHEUS_MULTIPROC_DIR=/tmp/prom_metrics
+      - MODEL_CACHE_DIR=/opt/hf_models
       - WORKERS=4
+      - OMP_NUM_THREADS=2
+      - MKL_NUM_THREADS=2
     restart: unless-stopped
 
   prometheus:
