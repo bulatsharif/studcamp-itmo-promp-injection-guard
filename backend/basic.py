@@ -440,32 +440,58 @@ class ToxicityDetector:
 class SpamDetector:
     def __init__(self):
         self.models = {}
-        self.tokenizers = {}
         self._load_models()
     
     def _load_models(self):
         device = 0 if torch.cuda.is_available() else -1
 
+        # Russian spam detection pipeline
         model_checkpoint_ru = "RUSpam/spam_deberta_v4"
-        self.tokenizers["ru"] = AutoTokenizer.from_pretrained(
-            model_checkpoint_ru
-        )
-        model_ru = AutoModelForSequenceClassification.from_pretrained(
-            model_checkpoint_ru
-        )
-        if torch.cuda.is_available():
-            model_ru = model_ru.cuda()
-        self.models["ru"] = model_ru
-
-        model_checkpoint_en = "mariagrandury/roberta-base-finetuned-sms-spam-detection"
-        self.tokenizers["en"] = None
-        self.models["en"] = pipeline(
-            model="mariagrandury/roberta-base-finetuned-sms-spam-detection",
+        pipeline_ru = pipeline(
+            model=model_checkpoint_ru,
             task="text-classification",
             return_all_scores=True,
             device=device,
             verbose=False,
         )
+
+        # Optimize Russian pipeline model
+        try:
+            model_ru_ref = pipeline_ru.model
+            model_ru_ref.eval()
+            with contextlib.suppress(Exception):
+                model_ru_ref = torch.compile(model_ru_ref, mode="max_autotune")
+            with contextlib.suppress(Exception):
+                model_ru_ref = BetterTransformer.transform(model_ru_ref)
+            pipeline_ru.model = model_ru_ref
+        except Exception:
+            pass
+
+        self.models["ru"] = pipeline_ru
+
+        # English spam detection pipeline
+        model_checkpoint_en = "mariagrandury/roberta-base-finetuned-sms-spam-detection"
+        pipeline_en = pipeline(
+            model=model_checkpoint_en,
+            task="text-classification",
+            return_all_scores=True,
+            device=device,
+            verbose=False,
+        )
+
+        # Optimize English pipeline model
+        try:
+            model_en_ref = pipeline_en.model
+            model_en_ref.eval()
+            with contextlib.suppress(Exception):
+                model_en_ref = torch.compile(model_en_ref, mode="max_autotune")
+            with contextlib.suppress(Exception):
+                model_en_ref = BetterTransformer.transform(model_en_ref)
+            pipeline_en.model = model_en_ref
+        except Exception:
+            pass
+
+        self.models["en"] = pipeline_en
     
     def detect_language(self, text):
         cyrillic_pattern = re.compile(r"[а-яё]", re.IGNORECASE)
@@ -476,11 +502,8 @@ class SpamDetector:
     def text2spam_ru(self, text: str):
         text = text.lower()
         with torch.no_grad():
-            inputs = self.tokenizers["ru"](
-                text, return_tensors="pt", truncation=True, padding=True
-            ).to(self.models["ru"].device)
-            logits = self.models["ru"](**inputs).logits
-            proba_spam = F.softmax(logits, dim=1)[0, 1].item()
+            pipe_result = self.models["ru"](text)
+        proba_spam = pipe_result[0][1]["score"]
         return proba_spam
       
     def text2spam_en(self, text):
@@ -530,10 +553,13 @@ class UnifiedMessageDefense:
     def __init__(self):
         self.prompt_injection_filter = PromptInjectionFilter()
         self.toxicity_detector = ToxicityDetector()
+        self.spam_detector = SpamDetector()
         self.hitl_controller = HITLController()
         self.toxicity_threshold = 0.5
+        self.spam_threshold = 0.8
         self.enable_prompt_injection_detection = True
         self.enable_toxicity_detection = True
+        self.enable_spam_detection = True
         self.enable_hitl_control = True
 
     def process_message(self, message: str, language: Optional[str] = None) -> dict:
@@ -574,6 +600,29 @@ class UnifiedMessageDefense:
                     return result
             except Exception as e:
                 result["safety_scores"]["toxicity_error"] = str(e)
+        if self.enable_spam_detection:
+            try:
+                spam_start = time.perf_counter()
+                spam_result = self.spam_detector.predict_spam(
+                    result["filtered_message"], language, self.spam_threshold
+                )
+                spam_elapsed = time.perf_counter() - spam_start
+                
+                spam_language = spam_result["language"]
+                metrics.SPAM_ML_LATENCY.labels(spam_language).observe(spam_elapsed)
+                
+                result["safety_scores"]["spam"] = spam_result["spam_score"]
+                if not result["safety_scores"].get("language"):
+                    result["safety_scores"]["language"] = spam_result["language"]
+                if spam_result["is_spam"]:
+                    metrics.SPAM_DETECTIONS_TOTAL.labels(spam_language).inc()
+                    result["is_safe"] = False
+                    result["rejection_reason"] = (
+                        f"Spam content detected (score: {spam_result['spam_score']:.3f})"
+                    )
+                    return result
+            except Exception as e:
+                result["safety_scores"]["spam_error"] = str(e)
         if self.enable_hitl_control:
             requires_approval = self.hitl_controller.requires_approval(
                 result["filtered_message"]
@@ -612,8 +661,6 @@ def defend_message(request: MessageRequest):
     result = defense_system.process_message(request.text)
     elapsed = time.perf_counter() - start_t
 
-    metrics.REQUEST_LATENCY.observe(elapsed)
-
     # Track language for all requests (from result or request)
     language = None
     if "safety_scores" in result and "language" in result["safety_scores"]:
@@ -622,6 +669,8 @@ def defend_message(request: MessageRequest):
         language = request.language
     else:
         language = "unknown"
+    
+    metrics.REQUEST_LATENCY.labels(language).observe(elapsed)
     metrics.REQUESTS_BY_LANGUAGE.labels(language).inc()
 
     if result["is_safe"]:
@@ -635,6 +684,8 @@ def defend_message(request: MessageRequest):
             REASON_LABEL = "prompt_injection"
         elif "toxic" in reason:
             REASON_LABEL = "toxicity"
+        elif "spam" in reason:
+            REASON_LABEL = "spam"
         elif "human review" in reason:
             REASON_LABEL = "human_review"
         else:

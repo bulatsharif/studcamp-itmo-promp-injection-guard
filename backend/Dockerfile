@@ -52,6 +52,18 @@ pipeline(
     cache_dir=cache_dir,
     verbose=False
 )
+pipeline(
+    "text-classification",
+    model="RUSpam/spam_deberta_v4",
+    cache_dir=cache_dir,
+    verbose=False
+)
+pipeline(
+    "text-classification",
+    model="mariagrandury/roberta-base-finetuned-sms-spam-detection",
+    cache_dir=cache_dir,
+    verbose=False
+)
 
 print("All models downloaded.")
 PYCODE
