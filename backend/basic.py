@@ -437,6 +437,95 @@ class ToxicityDetector:
         return results
 
 
+class SpamDetector:
+    def __init__(self):
+        self.models = {}
+        self.tokenizers = {}
+        self._load_models()
+    
+    def _load_models(self):
+        device = 0 if torch.cuda.is_available() else -1
+
+        model_checkpoint_ru = "RUSpam/spam_deberta_v4"
+        self.tokenizers["ru"] = AutoTokenizer.from_pretrained(
+            model_checkpoint_ru
+        )
+        model_ru = AutoModelForSequenceClassification.from_pretrained(
+            model_checkpoint_ru
+        )
+        if torch.cuda.is_available():
+            model_ru = model_ru.cuda()
+        self.models["ru"] = model_ru
+
+        model_checkpoint_en = "mariagrandury/roberta-base-finetuned-sms-spam-detection"
+        self.tokenizers["en"] = None
+        self.models["en"] = pipeline(
+            model="mariagrandury/roberta-base-finetuned-sms-spam-detection",
+            task="text-classification",
+            return_all_scores=True,
+            device=device,
+            verbose=False,
+        )
+    
+    def detect_language(self, text):
+        cyrillic_pattern = re.compile(r"[а-яё]", re.IGNORECASE)
+        if cyrillic_pattern.search(text):
+            return "ru"
+        return "en"
+    
+    def text2spam_ru(self, text: str):
+        text = text.lower()
+        with torch.no_grad():
+            inputs = self.tokenizers["ru"](
+                text, return_tensors="pt", truncation=True, padding=True
+            ).to(self.models["ru"].device)
+            logits = self.models["ru"](**inputs).logits
+            proba_spam = F.softmax(logits, dim=1)[0, 1].item()
+        return proba_spam
+      
+    def text2spam_en(self, text):
+        text = text.lower()
+        with torch.no_grad():
+            pipe_result = self.models["en"](text)
+        proba_spam = pipe_result[0][1]["score"]
+        return proba_spam
+    
+
+    def predict_spam(self, text: str, language: str = None, spam_threshold: float = 0.8):
+        if language is None:
+            language = self.detect_language(text)
+        if language == "ru":
+            spam_score = float(self.text2spam_ru(text))
+        elif language == "en":
+            spam_score = float(self.text2spam_en(text))
+        else:
+            raise ValueError(f"Unsupported language: {language}")
+        is_spam = spam_score > spam_threshold
+        return {
+            "text": text,
+            "language": language,
+            "spam_score": spam_score,
+            "is_spam": is_spam,
+        }
+
+    def batch_predict(self, texts: list[str], language: str = None, spam_threshold: float = 0.8):
+        results = []
+        for text in texts:
+            try:
+                result = self.predict_spam(text, language)
+                results.append(result)
+            except Exception as e:
+                results.append(
+                    {
+                        "text": text,
+                        "error": str(e),
+                        "spam_score": None,
+                        "is_spam": None,
+                    }
+                )
+        return results
+
+
 class UnifiedMessageDefense:
     def __init__(self):
         self.prompt_injection_filter = PromptInjectionFilter()
