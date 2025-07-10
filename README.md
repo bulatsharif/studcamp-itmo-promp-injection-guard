@@ -44,8 +44,6 @@ MKL_NUM_THREADS=2
 ```
 
 ### 3. Build and Run
-
-```bash
 DOCKER_BUILDKIT=1 docker compose up --build
 ```
 
@@ -116,3 +114,4 @@ Visit Grafana dashboard at http://localhost:3000 to monitor:
 - Detection rates by type
 - Model inference performance
 - System resource usage
+

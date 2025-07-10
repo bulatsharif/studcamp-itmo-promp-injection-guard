@@ -10,4 +10,5 @@ httpx
 prometheus-client
 python-dotenv
 openai
+dotenv
 pydantic-settings
