@@ -24,6 +24,11 @@ AutoTokenizer.from_pretrained("cointegrated/rubert-tiny-toxicity")
 AutoModelForSequenceClassification.from_pretrained("cointegrated/rubert-tiny-toxicity")
 # English toxicity detection model
 pipeline(task="text-classification", model="minuva/MiniLMv2-toxic-jigsaw", verbose=False)
+# Russian spam detection model
+AutoTokenizer.from_pretrained("RUSpam/spam_deberta_v4")
+AutoModelForSequenceClassification.from_pretrained("RUSpam/spam_deberta_v4")
+# English smap detection model
+pipeline("text-classification", model="mariagrandury/roberta-base-finetuned-sms-spam-detection", verbose=False)
 print("HuggingFace models downloaded and cached successfully.")
 PYTHON
 
