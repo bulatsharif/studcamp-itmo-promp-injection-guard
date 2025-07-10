@@ -9,3 +9,5 @@ prometheus-client
 gunicorn
 python-dotenv
 openai
+dotenv
+
