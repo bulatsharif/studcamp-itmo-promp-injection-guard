@@ -33,9 +33,6 @@ REJECTED_MESSAGES_TOTAL = Counter(
     labelnames=["reason"],
 )
 
-HUMAN_REVIEW_TOTAL = Counter(
-    "defense_human_review_required_total", "Messages routed for human review"
-)
 
 PROMPT_INJECTION_DETECTIONS_TOTAL = Counter(
     "prompt_injection_detections_total",

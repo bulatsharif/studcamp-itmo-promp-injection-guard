@@ -90,4 +90,4 @@ ENV OMP_NUM_THREADS=${OMP_NUM_THREADS:-2}
 ENV MKL_NUM_THREADS=${MKL_NUM_THREADS:-2}
 
 # 8) Launch with Uvicorn
-CMD ["sh", "-c", "uvicorn backend.basic:app --workers ${WORKERS:-4} --loop uvloop --http h11 --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "uvicorn backend.api:app --workers ${WORKERS:-4} --loop uvloop --http h11 --host 0.0.0.0 --port 8000"]
