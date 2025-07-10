@@ -15,6 +15,7 @@ services:
       - WORKERS=4
       - OMP_NUM_THREADS=2
       - MKL_NUM_THREADS=2
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
     restart: unless-stopped
 
   prometheus:
