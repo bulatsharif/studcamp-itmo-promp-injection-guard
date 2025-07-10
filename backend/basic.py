@@ -1,7 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
+from transformers import (
+    AutoTokenizer,
+    AutoModelForSequenceClassification,
+    pipeline,
+)
+from optimum.bettertransformer import BetterTransformer
 import torch
 import re
 from typing import Optional
@@ -10,6 +15,7 @@ import time
 import backend.metrics as metrics
 from dotenv import load_dotenv
 from openai import OpenAI
+import contextlib
 
 class PromptInjectionFilter:
     def __init__(self):
@@ -48,12 +54,26 @@ class PromptInjectionFilter:
         try:
             ru_model_path = "./ru-bert-prompt-injection"
             if os.path.exists(ru_model_path):
-                self.ru_tokenizer = AutoTokenizer.from_pretrained(ru_model_path)
+                # Use Rust-backed fast tokenizer for better throughput
+                self.ru_tokenizer = AutoTokenizer.from_pretrained(
+                    ru_model_path, use_fast=True
+                )
                 self.ru_model = AutoModelForSequenceClassification.from_pretrained(ru_model_path)
-                
-                # Move to GPU if available
+
+                # Move to GPU if available *before* applying further optimisations
                 if torch.cuda.is_available():
                     self.ru_model = self.ru_model.cuda()
+
+                # Torch-Inductor graph compilation (PyTorch ≥ 2.0)
+                with contextlib.suppress(Exception):
+                    self.ru_model = torch.compile(self.ru_model, mode="max_autotune")
+
+                # Enable fused transformer fast-path
+                with contextlib.suppress(Exception):
+                    self.ru_model = BetterTransformer.transform(self.ru_model)
+
+                # Switch to evaluation mode – mandatory for deterministic outputs
+                self.ru_model.eval()
                 
                 self.ru_model_available = True
                 print("Russian prompt injection model loaded successfully")
@@ -305,20 +325,49 @@ class ToxicityDetector:
 
     def _load_models(self):
         model_checkpoint_ru = "cointegrated/rubert-tiny-toxicity"
-        self.tokenizers["ru"] = AutoTokenizer.from_pretrained(model_checkpoint_ru)
-        self.models["ru"] = AutoModelForSequenceClassification.from_pretrained(
+        # Use fast tokenizer
+        self.tokenizers["ru"] = AutoTokenizer.from_pretrained(
+            model_checkpoint_ru, use_fast=True
+        )
+        model_ru = AutoModelForSequenceClassification.from_pretrained(
             model_checkpoint_ru
         )
+
+        # Optimise Russian toxicity model
+        with contextlib.suppress(Exception):
+            model_ru.eval()
+            model_ru = torch.compile(model_ru, mode="max_autotune")
+        with contextlib.suppress(Exception):
+            model_ru = BetterTransformer.transform(model_ru)
+
+        self.models["ru"] = model_ru
         model_checkpoint_en = "minuva/MiniLMv2-toxic-jigsaw"
         self.tokenizers["en"] = None
-        self.models["en"] = pipeline(
+        pipeline_en = pipeline(
             model="minuva/MiniLMv2-toxic-jigsaw",
             task="text-classification",
             verbose=False,
         )
+
+        # Compile the underlying model to speed up English toxicity detection
+        try:
+            model_en_ref = pipeline_en.model  # type: ignore[attr-defined]
+            model_en_ref.eval()
+            with contextlib.suppress(Exception):
+                model_en_ref = torch.compile(model_en_ref, mode="max_autotune")
+            with contextlib.suppress(Exception):
+                model_en_ref = BetterTransformer.transform(model_en_ref)
+            pipeline_en.model = model_en_ref  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+        self.models["en"] = pipeline_en
+        # Move raw torch models to GPU if available (pipelines manage device automatically)
         if torch.cuda.is_available():
-            for model in self.models.values():
-                model.cuda()
+            for mdl in self.models.values():
+                # Only move raw nn.Module instances; skip pipelines
+                if isinstance(mdl, torch.nn.Module):
+                    mdl.cuda()
 
     def detect_language(self, text):
         cyrillic_pattern = re.compile(r"[а-яё]", re.IGNORECASE)

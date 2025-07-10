@@ -1,9 +1,12 @@
 fastapi
 uvicorn
-transformers
-torch
-pydantic 
+uvloop
+optimum
+transformers<4.49
+torch>=2.0
+pydantic
 pytest
 httpx
 prometheus-client
-gunicorn
+python-dotenv
+openai
